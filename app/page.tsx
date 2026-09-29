@@ -2,6 +2,75 @@
 
 import { useState } from "react";
 
+const CALLBACK_URL =
+  process.env.NEXT_PUBLIC_KYC_CALLBACK_URL ||
+  "https://kyc-initiate-xn94.vercel.app/kyc/success";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ResultCard({ data }: { data: any }) {
+  const d = data?.data;
+  const failed = !d || data?.Success === false || data?.success === false;
+  const message =
+    data?.message || data?.Message || data?.error || d?.Message || null;
+  const kycDone =
+    !failed &&
+    /verified|registered/i.test(`${d?.KYCStatusDesc || ""}`);
+
+  const rows: [string, string | undefined][] = d
+    ? [
+        ["Name", d.Name],
+        ["PAN", d.PanNo],
+        ["KRA", d.KRAName],
+        ["KYC status", d.KYCStatusDesc],
+        ["Last updated", d.KYCStatusDate],
+        ["Hold reason", d.KYCHoldReason],
+      ]
+    : [];
+
+  return (
+    <div
+      className={`mt-6 rounded-xl border p-5 ${
+        failed
+          ? "border-red-200 bg-red-50"
+          : kycDone
+            ? "border-emerald-200 bg-emerald-50"
+            : "border-amber-200 bg-amber-50"
+      }`}
+    >
+      <h3 className="text-lg font-semibold">
+        {failed
+          ? "We couldn't complete this request"
+          : kycDone
+            ? "Great news — this PAN is KYC compliant"
+            : "Here's the current KYC status"}
+      </h3>
+      {failed && (
+        <p className="mt-1 text-sm text-gray-600">
+          {message || "Please check the details and try again."}
+        </p>
+      )}
+      {!failed && (
+        <dl className="mt-3 grid grid-cols-3 gap-y-2 text-sm">
+          {rows
+            .filter(([, v]) => v)
+            .map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-gray-500">{k}</dt>
+                <dd className="col-span-2 font-medium">{v}</dd>
+              </div>
+            ))}
+        </dl>
+      )}
+      <details className="mt-3 text-xs text-gray-500">
+        <summary className="cursor-pointer">Technical details</summary>
+        <pre className="mt-2 overflow-auto whitespace-pre-wrap break-words">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
 export default function KycInitiate() {
   const [formData, setFormData] = useState({
     name: "",
@@ -17,7 +86,25 @@ export default function KycInitiate() {
   const [responseData, setResponseData] = useState<any>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { id, value } = e.target;
+    const { id } = e.target;
+    let { value } = e.target;
+
+    if (id === "panNo") {
+      // Letters/digits only, always uppercase
+      value = value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+    } else if (id === "dob") {
+      // Digits only, auto-insert "/" after day and month (dd/MM/yyyy)
+      const digits = value.replace(/\D/g, "").slice(0, 8);
+      value = digits;
+      if (digits.length > 4) {
+        value = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+      } else if (digits.length > 2) {
+        value = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+      }
+    } else if (id === "mobileNo") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    }
+
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
 
@@ -30,8 +117,13 @@ export default function KycInitiate() {
       return;
     }
 
-    if (!/^[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}$/.test(panNo)) {
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panNo)) {
       alert("Please enter a valid 10-character PAN number.");
+      return;
+    }
+
+    if (!/^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/(19|20)\d{2}$/.test(dob)) {
+      alert("Please enter a valid date of birth in dd/MM/yyyy format.");
       return;
     }
 
@@ -80,6 +172,7 @@ export default function KycInitiate() {
           DateOfBirth: dob,
           VerifyKYCStatusWithKRA: "Y",
           IsIndividual: "Y",
+          CallbackURL: CALLBACK_URL,
         };
 
         if (kycStatusDetails.KYCStatus) {
@@ -116,9 +209,12 @@ export default function KycInitiate() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 sm:p-8 flex justify-center items-start pt-8 sm:pt-16">
-      <div className="bg-white p-6 sm:p-8 rounded-lg max-w-[600px] w-full shadow-md text-gray-800">
-        <h2 className="text-2xl font-bold text-center mb-6">KYC Process</h2>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-4 sm:p-8 flex justify-center items-start pt-8 sm:pt-16">
+      <div className="bg-white p-6 sm:p-8 rounded-2xl max-w-[600px] w-full shadow-xl text-gray-800">
+        <h2 className="text-2xl font-bold text-center">KYC Process</h2>
+        <p className="text-center text-sm text-gray-500 mb-6">
+          Check your KYC status or start a new verification in minutes.
+        </p>
 
         <div className="space-y-4">
           <div>
@@ -131,7 +227,7 @@ export default function KycInitiate() {
               maxLength={50}
               placeholder="John Doe"
               required
-              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={formData.name}
               onChange={handleChange}
             />
@@ -145,8 +241,7 @@ export default function KycInitiate() {
               id="panNo"
               placeholder="ABCDE1234F"
               required
-              maxLength={10}
-              className="w-full p-2.5 border border-gray-300 rounded uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full p-2.5 border border-gray-300 rounded uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={formData.panNo}
               onChange={handleChange}
             />
@@ -161,7 +256,7 @@ export default function KycInitiate() {
               maxLength={50}
               placeholder="user@example.com"
               required
-              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={formData.emailId}
               onChange={handleChange}
             />
@@ -177,7 +272,7 @@ export default function KycInitiate() {
                 id="mobilePrefix"
                 required
                 maxLength={5}
-                className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.mobilePrefix}
                 onChange={handleChange}
               />
@@ -189,10 +284,9 @@ export default function KycInitiate() {
               <input
                 type="text"
                 id="mobileNo"
-                maxLength={10}
                 placeholder="9876543210"
                 required
-                className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.mobileNo}
                 onChange={handleChange}
               />
@@ -207,8 +301,9 @@ export default function KycInitiate() {
               type="text"
               id="dob"
               placeholder="15/08/1990"
+              inputMode="numeric"
               required
-              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full p-2.5 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={formData.dob}
               onChange={handleChange}
             />
@@ -217,7 +312,7 @@ export default function KycInitiate() {
           <button
             onClick={processKyc}
             disabled={loading}
-            className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded mt-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full p-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded mt-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Processing..." : "Check Status & Initiate"}
           </button>
@@ -229,11 +324,7 @@ export default function KycInitiate() {
           </div>
         )}
 
-        {responseData && (
-          <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded overflow-auto text-sm whitespace-pre-wrap break-words text-gray-700">
-            {JSON.stringify(responseData, null, 2)}
-          </div>
-        )}
+        {responseData && <ResultCard data={responseData} />}
       </div>
     </div>
   );
